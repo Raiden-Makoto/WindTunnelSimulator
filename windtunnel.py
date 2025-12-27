@@ -16,9 +16,7 @@ SHAPE_TYPE = "pig"
 rng = np.random.default_rng(6767)
 
 # Physics Constants
-rho = 1.0 # density of air
-mu = rng.uniform(0.001, 0.01)
-u_inlet = rng.uniform(1.0, 2.0)
+rho, mu, u_inlet = 1.0, 0.002, 1.0  # <--- Lower viscosity
 
 # Domain Setup (2D Cross-Section of a Wind Tunnel)
 tunnel = dde.geometry.Rectangle([0, 0], [2, 1])
@@ -93,15 +91,19 @@ bc_outlet_p = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_outlet, component
 bcs = [bc_inlet_u, bc_inlet_v, bc_walls_u, bc_walls_v, bc_shape_u, bc_shape_v, bc_outlet_p]
 
 # Train the PINN
-data = dde.data.PDE(geom, pde, bcs, num_domain=2000, num_boundary=400, num_test=1000)
-net = dde.nn.FNN([2] + [50] * 4 + [3], "tanh", "Glorot normal")
+# We need more points to capture the sharper turbulence
+data = dde.data.PDE(geom, pde, bcs, num_domain=5000, num_boundary=1000, num_test=1000)
+
+# We need a larger network for harder physics
+net = dde.nn.FNN([2] + [64] * 5 + [3], "tanh", "Glorot normal")  # Slightly deeper network
 model = dde.Model(data, net)
 
 print("Compiling model...")
 model.compile("adam", lr=1e-3)
 
 print("Training...")
-model.train(iterations=6767)
+# It takes longer to learn chaos
+model.train(iterations=12000)
 
 print("Generating Plot...")
 x = np.linspace(0, 2, 200)
