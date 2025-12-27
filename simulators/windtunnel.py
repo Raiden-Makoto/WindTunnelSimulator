@@ -5,8 +5,8 @@ import deepxde as dde #type: ignore
 import numpy as np #type: ignore
 import matplotlib.pyplot as plt #type: ignore
 
-from potato import generate_random_potato
-from pig import generate_flying_pig
+from generators.potato import generate_random_potato
+from generators.pig import generate_flying_pig
 
 # ===== CONFIGURATION =====
 # Change this to switch shapes: "potato" or "pig"
@@ -154,5 +154,8 @@ shape_points_array = np.array(shape_points)
 shape_patch = plt.Polygon(shape_points_array, facecolor='black', edgecolor='white', linewidth=2, zorder=10)
 plt.gca().add_patch(shape_patch)
 
-plt.savefig(f"flow/{SHAPE_TYPE}_thermal_flow.png", dpi=150, bbox_inches='tight')
-print(f"Saved thermal flow visualization to flow/{SHAPE_TYPE}_thermal_flow.png")
+output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "flow")
+os.makedirs(output_dir, exist_ok=True)
+output_path = os.path.join(output_dir, f"{SHAPE_TYPE}_thermal_flow.png")
+plt.savefig(output_path, dpi=150, bbox_inches='tight')
+print(f"Saved thermal flow visualization to {output_path}")
