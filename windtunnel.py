@@ -1,10 +1,17 @@
 import os
-os.environ["DDE_BACKEND"] = "torch"
+os.environ["DDE_BACKEND"] = "pytorch"
 
 import deepxde as dde #type: ignore
 import numpy as np #type: ignore
 import matplotlib.pyplot as plt #type: ignore
-import torch #type: ignore
+
+from potato import generate_random_potato
+from pig import generate_flying_pig
+
+# ===== CONFIGURATION =====
+# Change this to switch shapes: "potato" or "pig"
+SHAPE_TYPE = "pig"
+# =========================
 
 rng = np.random.default_rng(6767)
 
@@ -15,8 +22,19 @@ u_inlet = rng.uniform(1.0, 2.0)
 
 # Domain Setup (2D Cross-Section of a Wind Tunnel)
 tunnel = dde.geometry.Rectangle([0, 0], [2, 1])
-sphere = dde.geometry.Disk([0.5, 0.5], 0.1) # Center=(0.5, 0.5), Radius=0.1 (i.e. sphere)
-geom = dde.geometry.CSGDifference(tunnel, sphere)
+
+# Generate shape based on configuration
+shape_generators = {
+    "potato": generate_random_potato,
+    "pig": generate_flying_pig
+}
+
+if SHAPE_TYPE not in shape_generators:
+    raise ValueError(f"Unknown shape type: {SHAPE_TYPE}. Choose from: {list(shape_generators.keys())}")
+
+print(f"Generating {SHAPE_TYPE}...")
+shape_geom, shape_points = shape_generators[SHAPE_TYPE]()
+geom = dde.geometry.CSGDifference(tunnel, shape_geom)
 
 # Navier-Stokes Equations for Incompressible Flow
 def pde(x,y):
@@ -52,7 +70,7 @@ def boundary_outlet(x, on_boundary):
     return on_boundary and np.isclose(x[0], 2)
 def boundary_walls(x, on_boundary):
     return on_boundary and (np.isclose(x[1], 0) or np.isclose(x[1], 1))
-def boundary_sphere(x, on_boundary):
+def boundary_shape(x, on_boundary):
     return on_boundary and not (
         np.isclose(x[0], 0) or np.isclose(x[0], 2) or
         np.isclose(x[1], 0) or np.isclose(x[1], 1)
@@ -62,14 +80,53 @@ def boundary_sphere(x, on_boundary):
 bc_inlet_u = dde.icbc.DirichletBC(geom, lambda x: 4 * u_inlet * x[:, 1:2] * (1 - x[:, 1:2]), boundary_inlet, component=0)
 bc_inlet_v = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_inlet, component=1)
 
-# Rule 2: No-Slip Condition (Air sticks to walls and sphere, velocity=0)
+# Rule 2: No-Slip Condition (Air sticks to walls and shape, velocity=0)
 bc_walls_u = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_walls, component=0)
 bc_walls_v = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_walls, component=1)
-bc_sphere_u = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_sphere, component=0)
-bc_sphere_v = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_sphere, component=1)
+bc_shape_u = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_shape, component=0)
+bc_shape_v = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_shape, component=1)
 
 # Rule 3: Outlet (Pressure is zero, air leaves freely)
 bc_outlet_p = dde.icbc.DirichletBC(geom, lambda x: 0, boundary_outlet, component=2)
 
 # Combine all Boundary Conditions
-bcs = [bc_inlet_u, bc_inlet_v, bc_walls_u, bc_walls_v, bc_sphere_u, bc_sphere_v, bc_outlet_p]
+bcs = [bc_inlet_u, bc_inlet_v, bc_walls_u, bc_walls_v, bc_shape_u, bc_shape_v, bc_outlet_p]
+
+# Train the PINN
+data = dde.data.PDE(geom, pde, bcs, num_domain=2000, num_boundary=400, num_test=1000)
+net = dde.nn.FNN([2] + [50] * 4 + [3], "tanh", "Glorot normal")
+model = dde.Model(data, net)
+
+print("Compiling model...")
+model.compile("adam", lr=1e-3)
+
+print("Training...")
+model.train(iterations=6767)
+
+print("Generating Plot...")
+x = np.linspace(0, 2, 200)
+y = np.linspace(0, 1, 100)
+X, Y = np.meshgrid(x, y)
+xy = np.vstack((X.ravel(), Y.ravel())).T
+
+# Ask the model: "What is the velocity at all these points?"
+uvp = model.predict(xy)
+u = uvp[:, 0].reshape(X.shape)
+v = uvp[:, 1].reshape(X.shape)
+
+plt.figure(figsize=(12, 6))
+# Plot streamlines (flow lines) on top of velocity magnitude (color)
+strm = plt.streamplot(X, Y, u, v, color=np.sqrt(u**2 + v**2), cmap="jet", density=1.5, linewidth=1)
+plt.colorbar(strm.lines, label="Velocity Magnitude (m/s)")
+plt.title(f"AI Prediction: Flow Past a {SHAPE_TYPE.capitalize()}")
+plt.xlabel("Length (m)")
+plt.ylabel("Height (m)")
+plt.axis("equal")
+
+# Draw the shape for reference
+# Convert to numpy array and ensure it's closed
+shape_points_array = np.array(shape_points)
+shape_patch = plt.Polygon(shape_points_array, facecolor='white', edgecolor='black', linewidth=2, zorder=10)
+plt.gca().add_patch(shape_patch)
+
+plt.savefig(f"flow/{SHAPE_TYPE}_flow.png")
