@@ -43,3 +43,17 @@ def pde(x,y):
     pde_cont = du_x + dv_y
     
     return [pde_u, pde_v, pde_cont]    
+
+# Boundary Conditions
+# Helper functions to identify where we are in the domain
+def boundary_inlet(x, on_boundary):
+    return on_boundary and np.isclose(x[0], 0)
+def boundary_outlet(x, on_boundary):
+    return on_boundary and np.isclose(x[0], 2)
+def boundary_walls(x, on_boundary):
+    return on_boundary and (np.isclose(x[1], 0) or np.isclose(x[1], 1))
+def boundary_sphere(x, on_boundary):
+    return on_boundary and not (
+        np.isclose(x[0], 0) or np.isclose(x[0], 2) or
+        np.isclose(x[1], 0) or np.isclose(x[1], 1)
+    )
